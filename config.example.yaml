@@ -1,0 +1,27 @@
+# Requires a plugin-enabled CLIProxyAPI v8.0.32 build or newer.
+# On v8.0.32, WebSocket rejections close the connection; consult audit logs for the decision status.
+plugins:
+  enabled: true
+  configs:
+    llm-moderation:
+      enabled: true
+      priority: 1
+      primary_mode: cpa
+      cpa_base_url: http://127.0.0.1:18080
+      cpa_api_key: replace-with-cpa-client-key
+      primary_model: replace-with-configured-model-id
+      primary_timeout: 10s
+      primary_endpoint: ""
+      primary_api_key: ""
+      fallback_enabled: false
+      fallback_endpoint: ""
+      fallback_api_key: ""
+      fallback_model: ""
+      fallback_timeout: 10s
+      threshold: 80
+      failure_policy: deny
+      log_dir: ./logs/llm-moderation
+
+upstream:
+  codex:
+    response-steering: false

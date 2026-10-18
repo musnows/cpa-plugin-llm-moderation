@@ -1,0 +1,7 @@
+.ai-docs/
+artifacts/
+logs/
+.cache/
+.DS_Store
+work/
+node_modules/

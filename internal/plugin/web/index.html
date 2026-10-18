@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>LLM 输入预检 · CPA</title>
+    <link rel="stylesheet" href="./style.css" />
+    <script src="./app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">M</span>
+        <div>
+          <strong>LLM 输入预检</strong
+          ><span class="subtle">CLIProxyAPI 插件</span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <span id="health" class="badge neutral">未连接</span
+        ><button id="lock" class="button quiet" hidden>断开管理连接</button>
+      </div>
+    </header>
+    <main class="shell">
+      <section id="login" class="card login-card">
+        <div>
+          <p class="eyebrow">管理认证</p>
+          <h1>连接审核管理</h1>
+          <p class="muted">
+            使用此 CPA 的管理密钥查看配置和日志。密钥仅用于当前页面的管理接口。
+          </p>
+        </div>
+        <form id="login-form">
+          <label for="management-key">管理密钥</label>
+          <div class="inline">
+            <input
+              id="management-key"
+              type="password"
+              autocomplete="off"
+              placeholder="输入 CPA 管理密钥"
+              required
+            /><button class="button primary" type="submit">连接</button>
+          </div>
+        </form>
+      </section>
+      <div id="notice" class="notice" role="status" hidden></div>
+      <div id="workspace" hidden>
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">INPUT MODERATION</p>
+            <h1>请求转发前，先完成审核</h1>
+            <p class="muted">主审核与独立 fallback，共用明确的判定规则。</p>
+          </div>
+          <div class="live-state">
+            <span class="dot"></span><span id="updated">等待加载</span>
+          </div>
+        </div>
+        <nav class="tabs" aria-label="页面导航">
+          <button class="tab active" data-tab="overview" aria-selected="true">
+            审核概览</button
+          ><button class="tab" data-tab="settings" aria-selected="false">
+            审核配置</button
+          ><button class="tab" data-tab="logs" aria-selected="false">
+            请求日志
+          </button>
+        </nav>
+        <section id="overview" class="tab-panel">
+          <div class="section-line">
+            <h2>运行概览</h2>
+            <div class="inline">
+              <select id="overview-period" aria-label="概览时间范围">
+                <option value="24">最近 24 小时</option>
+                <option value="1">最近 1 小时</option>
+                <option value="168">最近 7 天</option></select
+              ><button id="refresh-overview" class="button">刷新概览</button>
+            </div>
+          </div>
+          <div class="metrics">
+            <article class="card metric">
+              <span>审核请求</span><strong id="metric-requests">—</strong
+              ><small>当前时间范围内</small>
+            </article>
+            <article class="card metric">
+              <span>拦截率</span><strong id="metric-block">—</strong
+              ><small id="metric-block-count">—</small>
+            </article>
+            <article class="card metric">
+              <span>Fallback 比例</span><strong id="metric-fallback">—</strong
+              ><small id="metric-fallback-count">—</small>
+            </article>
+            <article class="card metric">
+              <span>审核故障率</span><strong id="metric-failure">—</strong
+              ><small>最终未获得有效结论的请求</small>
+            </article>
+          </div>
+          <div class="overview-grid">
+            <article class="card">
+              <div class="card-heading">
+                <h2>审核带来的等待时间</h2>
+                <span class="badge neutral">毫秒</span>
+              </div>
+              <p class="muted compact">
+                统计独立审核调用及预检决策耗时，不代表完整端到端
+                TTFT。分位数精度为 1 ms。
+              </p>
+              <div class="table-wrap">
+                <table class="timing-table">
+                  <thead>
+                    <tr>
+                      <th>阶段</th>
+                      <th>样本数</th>
+                      <th>平均</th>
+                      <th>P50</th>
+                      <th>P95</th>
+                    </tr>
+                  </thead>
+                  <tbody id="timings"></tbody>
+                </table>
+              </div>
+              <p class="footnote">
+                主审核失败后串行执行 fallback，两次调用耗时会累加。
+              </p>
+            </article>
+            <aside class="card">
+              <h2>当前规则</h2>
+              <dl class="policy-list">
+                <div>
+                  <dt>网络安全</dt>
+                  <dd>所有攻防、漏洞、渗透等相关内容</dd>
+                </div>
+                <div>
+                  <dt>涉政内容</dt>
+                  <dd>暴力煽动、威胁、仇恨等高风险内容</dd>
+                </div>
+                <div>
+                  <dt>NSFW</dt>
+                  <dd>色情与性化内容；保留医学、教育和艺术场景</dd>
+                </div>
+                <div>
+                  <dt>判定阈值</dt>
+                  <dd id="rule-threshold">—</dd>
+                </div>
+              </dl>
+              <div id="steering-status" class="compatibility">
+                部署要求：response-steering=false
+              </div>
+            </aside>
+          </div>
+        </section>
+        <section id="settings" class="tab-panel" hidden>
+          <form id="settings-form">
+            <div class="section-line">
+              <div>
+                <h2>审核配置</h2>
+                <p class="muted compact">保存后通过 CPA 原生配置接口热更新。</p>
+              </div>
+              <button id="save" type="submit" class="button primary">
+                保存配置
+              </button>
+            </div>
+            <div class="settings-grid">
+              <article class="card">
+                <div class="card-heading">
+                  <h2>主审核模型</h2>
+                  <span class="badge blue">PRIMARY</span>
+                </div>
+                <label for="primary_mode">连接方式</label
+                ><select id="primary_mode">
+                  <option value="cpa">使用 CPA 已配置模型</option>
+                  <option value="external">独立 Chat Completions 接口</option>
+                </select>
+                <div id="cpa-fields">
+                  <label for="cpa_base_url">CPA 内部访问地址</label
+                  ><input
+                    id="cpa_base_url"
+                    class="mono"
+                    type="url"
+                    placeholder="http://127.0.0.1:18080"
+                  />
+                  <p class="field-help">
+                    填写 CPA 进程可以访问的地址，可包含 /v1。
+                  </p>
+                  <label for="cpa_api_key">内部审核访问 Key</label
+                  ><input
+                    id="cpa_api_key"
+                    class="mono"
+                    type="password"
+                    autocomplete="off"
+                  />
+                  <div class="label-line">
+                    <label for="cpa_model">审核模型</label
+                    ><button id="load-models" class="text-button" type="button">
+                      刷新模型列表
+                    </button>
+                  </div>
+                  <select id="cpa_model" class="mono">
+                    <option value="">请先加载模型列表</option>
+                  </select>
+                </div>
+                <div id="external-fields" hidden>
+                  <label for="primary_endpoint">Chat Completions endpoint</label
+                  ><input
+                    id="primary_endpoint"
+                    class="mono"
+                    type="url"
+                    placeholder="https://api.example.com/v1/chat/completions"
+                  /><label for="primary_api_key">审核服务 API Key</label
+                  ><input
+                    id="primary_api_key"
+                    class="mono"
+                    type="password"
+                    autocomplete="off"
+                  /><label for="external_model">模型 ID</label
+                  ><input
+                    id="external_model"
+                    class="mono"
+                    placeholder="review-model"
+                  />
+                </div>
+                <label for="primary_timeout">单次超时</label
+                ><input id="primary_timeout" class="mono" placeholder="10s" />
+                <div class="test-line">
+                  <button id="test-primary" type="button" class="button">
+                    测试主审核</button
+                  ><span
+                    id="primary-result"
+                    class="test-result"
+                    role="status"
+                  ></span>
+                </div>
+              </article>
+              <article class="card">
+                <div class="card-heading">
+                  <h2>独立备用审核</h2>
+                  <span class="badge neutral">FALLBACK</span>
+                </div>
+                <label class="toggle-line"
+                  ><input id="fallback_enabled" type="checkbox" /><span
+                    >启用 fallback</span
+                  ></label
+                >
+                <p class="muted compact">
+                  主审核超时、调用失败或 JSON 无效后，再调用备用接口。
+                </p>
+                <fieldset id="fallback-fields">
+                  <label for="fallback_endpoint"
+                    >Chat Completions endpoint</label
+                  ><input
+                    id="fallback_endpoint"
+                    class="mono"
+                    type="url"
+                    placeholder="https://backup.example.com/v1/chat/completions"
+                  /><label for="fallback_api_key">备用服务 API Key</label
+                  ><input
+                    id="fallback_api_key"
+                    class="mono"
+                    type="password"
+                    autocomplete="off"
+                  /><label for="fallback_model">备用模型 ID</label
+                  ><input
+                    id="fallback_model"
+                    class="mono"
+                    placeholder="fallback-review-model"
+                  /><label for="fallback_timeout">单次超时</label
+                  ><input
+                    id="fallback_timeout"
+                    class="mono"
+                    placeholder="10s"
+                  />
+                </fieldset>
+                <div class="test-line">
+                  <button id="test-fallback" type="button" class="button">
+                    测试备用审核</button
+                  ><span
+                    id="fallback-result"
+                    class="test-result"
+                    role="status"
+                  ></span>
+                </div>
+              </article>
+            </div>
+            <article class="card behavior-card">
+              <h2>判定、故障与日志</h2>
+              <div class="behavior-grid">
+                <div>
+                  <label for="threshold">违规置信度阈值</label
+                  ><input
+                    id="threshold"
+                    required
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="any"
+                  />
+                  <p class="field-help">
+                    严格大于阈值才拦截。0 全拦截；100 不按评分拦截。
+                  </p>
+                </div>
+                <div>
+                  <label for="failure_policy">主备均失败时</label
+                  ><select id="failure_policy">
+                    <option value="deny">拒绝转发，返回 503</option>
+                    <option value="allow">放行并记录故障</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="log_dir">审核日志目录</label
+                  ><input id="log_dir" class="mono" />
+                  <p class="field-help">
+                    相对 CPA 工作目录，每日 JSONL 文件，不自动清理。
+                  </p>
+                </div>
+              </div>
+              <p class="footnote">
+                仅提取当前请求可见的用户文本。部署时关闭实验性
+                response-steering。HTTP/SSE 拒绝时返回 403 或 503；WebSocket
+                拒绝时关闭连接，判定状态和原因保存在审核日志。
+              </p>
+            </article>
+          </form>
+        </section>
+        <section id="logs" class="tab-panel" hidden>
+          <div class="section-line">
+            <div>
+              <h2>请求日志</h2>
+              <p class="muted compact">
+                按原始请求记录，Key 以脱敏片段和稳定指纹标识。
+              </p>
+            </div>
+            <button id="refresh-logs" class="button">刷新日志</button>
+          </div>
+          <form id="filters" class="card filters">
+            <div>
+              <label for="log-period">时间范围</label
+              ><select id="log-period">
+                <option value="24">最近 24 小时</option>
+                <option value="1">最近 1 小时</option>
+                <option value="168">最近 7 天</option>
+                <option value="custom">自定义</option>
+              </select>
+            </div>
+            <div>
+              <label for="filter-key">API Key</label
+              ><input
+                id="filter-key"
+                class="mono"
+                placeholder="脱敏片段或指纹"
+              />
+            </div>
+            <div>
+              <label for="filter-target">目标模型</label
+              ><input id="filter-target" class="mono" placeholder="模型 ID" />
+            </div>
+            <div>
+              <label for="filter-review">审核模型</label
+              ><input id="filter-review" class="mono" placeholder="模型 ID" />
+            </div>
+            <div>
+              <label for="filter-decision">结果</label
+              ><select id="filter-decision">
+                <option value="">全部结果</option>
+                <option value="allow">放行</option>
+                <option value="block">拦截</option>
+                <option value="error_denied">故障拒绝</option>
+                <option value="error_allowed">故障放行</option>
+                <option value="canceled">已取消</option>
+                <option value="skipped">跳过</option>
+              </select>
+            </div>
+            <button class="button primary" type="submit">应用筛选</button>
+            <div id="custom-times" class="custom-times" hidden>
+              <div>
+                <label for="filter-from">开始时间</label
+                ><input id="filter-from" type="datetime-local" />
+              </div>
+              <div>
+                <label for="filter-to">结束时间</label
+                ><input id="filter-to" type="datetime-local" />
+              </div>
+              <span class="field-help">单次查询最多 31 天。</span>
+            </div>
+          </form>
+          <div class="card log-card">
+            <div class="table-wrap">
+              <table class="log-table">
+                <thead>
+                  <tr>
+                    <th>时间 / 调用方</th>
+                    <th>目标模型</th>
+                    <th>结果</th>
+                    <th>置信度</th>
+                    <th>最终审核模型</th>
+                    <th>审核 / 预检耗时</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="records"></tbody>
+              </table>
+            </div>
+            <div id="empty" class="empty-state" hidden>
+              <strong>暂无匹配的审核记录</strong>
+              <p>请求经过插件后会显示在这里，也可以调整时间和筛选条件。</p>
+            </div>
+            <div class="pagination">
+              <span id="record-count" class="muted">—</span
+              ><button id="next-page" class="button" disabled>加载更多</button>
+            </div>
+          </div>
+        </section>
+        <footer>
+          LLM Moderation <span class="mono">v0.1.0</span
+          ><span>日志不保存完整 Key 和原始用户文本</span>
+        </footer>
+      </div>
+    </main>
+    <dialog id="detail">
+      <div class="card-heading">
+        <h2>审核记录详情</h2>
+        <button id="close-detail" class="button quiet">关闭</button>
+      </div>
+      <pre id="detail-data" class="mono"></pre>
+    </dialog>
+  </body>
+</html>

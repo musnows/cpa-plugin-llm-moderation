@@ -1,0 +1,12 @@
+{
+  "name": "cpa-plugin-llm-moderation",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "check": "node --check internal/plugin/web/app.js && node --check testsupport/integration.mjs && node --check testsupport/launch.mjs",
+    "format:check": "prettier --check internal/plugin/web testsupport/*.mjs package.json"
+  },
+  "devDependencies": {
+    "prettier": "3.6.2"
+  }
+}
