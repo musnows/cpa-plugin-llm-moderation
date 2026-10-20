@@ -1,6 +1,6 @@
 {
   "name": "cpa-plugin-llm-moderation",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "scripts": {
     "check": "node --check internal/plugin/web/app.js && node --check testsupport/integration.mjs && node --check testsupport/launch.mjs",

@@ -14,7 +14,7 @@ import (
 )
 
 const ID = "llm-moderation"
-const Version = "0.1.2"
+const Version = "0.1.3"
 const MaxInputBytes = 4 << 20
 const MaxRequestBytes = 32 << 20
 const MaxResponseBytes = 1 << 20
