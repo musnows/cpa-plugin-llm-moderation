@@ -8,6 +8,7 @@ let records = [];
 let nextCursor = "";
 let activeQuery = "";
 let connected = false;
+const busyButtons = new Set();
 const defaults = {
   enabled: true,
   primary_mode: "cpa",
@@ -16,12 +17,15 @@ const defaults = {
   primary_endpoint: "",
   primary_api_key: "",
   primary_model: "",
-  primary_timeout: "10s",
+  primary_timeout: 10,
   fallback_enabled: false,
+  fallback_mode: "external",
+  fallback_cpa_base_url: "",
+  fallback_cpa_api_key: "",
   fallback_endpoint: "",
   fallback_api_key: "",
   fallback_model: "",
-  fallback_timeout: "10s",
+  fallback_timeout: 10,
   threshold: 80,
   failure_policy: "deny",
   log_dir: "./logs/llm-moderation",
@@ -44,6 +48,10 @@ const errorLabels = {
   audit_directory_unavailable: "审核日志目录无法访问",
   invalid_configuration: "审核配置无效",
   fallback_disabled: "尚未启用 fallback",
+  "primary_timeout must be a number of seconds between 2 and 600":
+    "主审核超时时间必须是 2–600 秒之间的数字。",
+  "fallback_timeout must be a number of seconds between 2 and 600":
+    "备用审核超时时间必须是 2–600 秒之间的数字。",
 };
 
 function notice(message, error = false) {
@@ -83,14 +91,17 @@ async function api(path, options = {}) {
 }
 async function busy(button, action) {
   const old = button.textContent;
+  busyButtons.add(button);
   button.disabled = true;
   try {
     await action();
   } catch (error) {
     notice(errorText(error), true);
   } finally {
+    busyButtons.delete(button);
     button.disabled = false;
     button.textContent = old;
+    modeFields();
   }
 }
 function selectedTab(name) {
@@ -116,8 +127,46 @@ function stamp() {
     "更新于 " + new Date().toLocaleTimeString("zh-CN", { hour12: false });
 }
 
+function legacyTimeoutSeconds(value) {
+  if (typeof value === "number") return value;
+  if (typeof value !== "string") return NaN;
+  const text = value.trim();
+  const pattern = /(\d+(?:\.\d*)?|\.\d+)(ns|us|µs|μs|ms|s|m|h)/gy;
+  const units = {
+    ns: 1e-9,
+    us: 1e-6,
+    µs: 1e-6,
+    μs: 1e-6,
+    ms: 0.001,
+    s: 1,
+    m: 60,
+    h: 3600,
+  };
+  let seconds = 0,
+    end = 0,
+    match;
+  while ((match = pattern.exec(text))) {
+    seconds += Number(match[1]) * units[match[2]];
+    end = pattern.lastIndex;
+  }
+  return end === text.length && end > 0 ? seconds : NaN;
+}
+
+function showModelSelection(id, model) {
+  const select = $(id);
+  select.replaceChildren();
+  const option = document.createElement("option");
+  option.value = model;
+  option.textContent = model || "请先加载模型列表";
+  select.append(option);
+}
+
 function displayConfig(value) {
   config = { ...defaults, ...value };
+  for (const key of ["primary_timeout", "fallback_timeout"]) {
+    const seconds = legacyTimeoutSeconds(config[key]);
+    config[key] = Number.isFinite(seconds) ? seconds : "";
+  }
   for (const key of Object.keys(defaults)) {
     const el = $(key);
     if (!el) continue;
@@ -125,11 +174,8 @@ function displayConfig(value) {
     else el.value = String(config[key] ?? "");
   }
   $("external_model").value = config.primary_model;
-  $("cpa_model").replaceChildren();
-  const option = document.createElement("option");
-  option.value = config.primary_model;
-  option.textContent = config.primary_model || "请先加载模型列表";
-  $("cpa_model").append(option);
+  showModelSelection("cpa_model", config.primary_model);
+  showModelSelection("fallback_cpa_model", config.fallback_model);
   $("rule-threshold").textContent =
     config.threshold === 0
       ? "0 · 全部拦截"
@@ -144,13 +190,44 @@ function modeFields() {
   $("external-fields").hidden = cpa;
   $("cpa-fields")
     .querySelectorAll("input,select,button")
-    .forEach((el) => (el.disabled = !cpa));
+    .forEach((el) => (el.disabled = !cpa || busyButtons.has(el)));
   $("external-fields")
     .querySelectorAll("input,select")
     .forEach((el) => (el.disabled = cpa));
-  $("fallback-fields").disabled = !$("fallback_enabled").checked;
-  $("test-fallback").disabled = !$("fallback_enabled").checked;
+  const fallbackEnabled = $("fallback_enabled").checked;
+  const fallbackCPA = $("fallback_mode").value === "cpa";
+  $("fallback_mode").disabled = !fallbackEnabled;
+  $("fallback_timeout").disabled = !fallbackEnabled;
+  $("fallback_timeout").parentElement.classList.toggle(
+    "disabled",
+    !fallbackEnabled,
+  );
+  $("fallback-cpa-fields").disabled = !fallbackEnabled || !fallbackCPA;
+  $("fallback-external-fields").disabled = !fallbackEnabled || fallbackCPA;
+  $("fallback-cpa-fields").hidden = !fallbackCPA;
+  $("fallback-external-fields").hidden = fallbackCPA;
+  $("fallback-cpa-fields")
+    .querySelectorAll("input,select,button")
+    .forEach(
+      (el) =>
+        (el.disabled = !fallbackEnabled || !fallbackCPA || busyButtons.has(el)),
+    );
+  $("fallback-external-fields")
+    .querySelectorAll("input")
+    .forEach((el) => (el.disabled = !fallbackEnabled || fallbackCPA));
+  $("test-fallback").disabled =
+    !fallbackEnabled || busyButtons.has($("test-fallback"));
 }
+
+function readTimeout(id, label) {
+  const raw = $(id).value.trim();
+  const seconds = Number(raw);
+  if (raw === "" || !Number.isFinite(seconds) || seconds < 2 || seconds > 600) {
+    throw new Error(label + "超时时间必须是 2–600 秒之间的数字。");
+  }
+  return seconds;
+}
+
 function collectConfig() {
   const value = { ...config };
   for (const key of Object.keys(defaults)) {
@@ -167,6 +244,12 @@ function collectConfig() {
     value.primary_mode === "cpa"
       ? $("cpa_model").value
       : $("external_model").value.trim();
+  value.fallback_model =
+    value.fallback_mode === "cpa"
+      ? $("fallback_cpa_model").value
+      : $("fallback_model").value.trim();
+  value.primary_timeout = readTimeout("primary_timeout", "主审核");
+  value.fallback_timeout = readTimeout("fallback_timeout", "备用审核");
   return value;
 }
 
@@ -412,29 +495,51 @@ document.querySelectorAll(".tab").forEach((tab) =>
   }),
 );
 $("primary_mode").addEventListener("change", modeFields);
+$("fallback_mode").addEventListener("change", modeFields);
 $("fallback_enabled").addEventListener("change", modeFields);
-$("load-models").addEventListener("click", (event) =>
-  busy(event.currentTarget, async () => {
-    const previous = $("cpa_model").value;
-    const result = await api(base + "/models", {
+async function loadModels(target, button) {
+  await busy(button, async () => {
+    const id = target === "fallback" ? "fallback_cpa_model" : "cpa_model";
+    const connection = () =>
+      target === "fallback"
+        ? [$("fallback_cpa_base_url").value, $("fallback_cpa_api_key").value]
+        : [$("cpa_base_url").value, $("cpa_api_key").value];
+    const initialConnection = JSON.stringify(connection());
+    const previous = $(id).value;
+    const result = await api(base + "/models?target=" + target, {
       method: "POST",
       body: JSON.stringify(collectConfig()),
     });
-    $("cpa_model").replaceChildren();
+    if (JSON.stringify(connection()) !== initialConnection) {
+      notice("连接配置已变更，请重新刷新模型列表。", true);
+      return;
+    }
+    $(id).replaceChildren();
     const placeholder = document.createElement("option");
     placeholder.value = "";
     placeholder.textContent = "选择审核模型";
-    $("cpa_model").append(placeholder);
+    $(id).append(placeholder);
     for (const model of result.models) {
       const option = document.createElement("option");
       option.value = model.id;
       option.textContent = model.id;
-      $("cpa_model").append(option);
+      $(id).append(option);
     }
     if (result.models.some((model) => model.id === previous))
-      $("cpa_model").value = previous;
-    notice("已读取 " + result.models.length + " 个可用模型。");
-  }),
+      $(id).value = previous;
+    notice(
+      (target === "fallback" ? "备用审核" : "主审核") +
+        "已读取 " +
+        result.models.length +
+        " 个可用模型。",
+    );
+  });
+}
+$("load-models").addEventListener("click", (event) =>
+  loadModels("primary", event.currentTarget),
+);
+$("load-fallback-models").addEventListener("click", (event) =>
+  loadModels("fallback", event.currentTarget),
 );
 $("settings-form").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -517,6 +622,20 @@ $("log-period").addEventListener("change", () => {
   $("custom-times").hidden = $("log-period").value !== "custom";
 });
 $("close-detail").addEventListener("click", () => $("detail").close());
+$("settings-form").addEventListener(
+  "invalid",
+  (event) => {
+    if (
+      event.target.id === "primary_timeout" ||
+      event.target.id === "fallback_timeout"
+    ) {
+      const label =
+        event.target.id === "primary_timeout" ? "主审核" : "备用审核";
+      notice(label + "超时时间必须是 2–600 秒之间的数字。", true);
+    }
+  },
+  true,
+);
 for (const eventName of ["input", "change"]) {
   $("settings-form").addEventListener(eventName, (event) => {
     const id = event.target.id;

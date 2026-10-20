@@ -421,6 +421,38 @@ input::placeholder {
   margin: 6px 0 0;
   line-height: 1.6;
 }
+.timeout-input {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  border: 1px solid #d8e0eb;
+  border-radius: 7px;
+  background: var(--surface);
+}
+.timeout-input:focus-within {
+  outline: 3px solid #3068db36;
+  outline-offset: 2px;
+}
+.timeout-input input {
+  flex: 1;
+  height: 38px;
+  border: 0;
+  background: transparent;
+}
+.timeout-input input:focus-visible {
+  outline: none;
+}
+.timeout-input.disabled,
+#fallback_mode:disabled {
+  opacity: 0.5;
+}
+.input-unit {
+  flex-shrink: 0;
+  padding: 0 12px;
+  border-left: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 13px;
+}
 .label-line {
   display: flex;
   align-items: baseline;
@@ -766,6 +798,9 @@ dialog pre {
   }
 }
 @media (prefers-color-scheme: dark) {
+  .timeout-input {
+    border-color: #3b4960;
+  }
   :root {
     color-scheme: dark;
     --bg: #111722;

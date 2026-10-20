@@ -263,12 +263,12 @@ try {
   await test("timeout cancels primary before fallback", async () => {
     await configure({
       primary_model: "review-timeout",
-      primary_timeout: "150ms",
+      primary_timeout: 2,
     });
     const start = performance.now();
     assert.equal((await chat("TEST_SAFE")).status, 200);
     const elapsed = performance.now() - start;
-    assert.ok(elapsed >= 140 && elapsed < 2000, "elapsed=" + elapsed);
+    assert.ok(elapsed >= 1900 && elapsed < 5000, "elapsed=" + elapsed);
     const recent = (await events()).slice(-5);
     const canceled = recent.findIndex((e) => e.kind === "review_canceled"),
       fallback = recent.findIndex(
@@ -276,7 +276,7 @@ try {
       );
     assert.ok(canceled >= 0 && fallback > canceled, JSON.stringify(recent));
     const record = (await lastRecords())[0];
-    assert.ok(record.primary_duration_ms >= 140);
+    assert.ok(record.primary_duration_ms >= 1900);
     assert.ok(record.fallback_duration_ms > 0);
   });
   await test("both failures deny with 503 or explicitly allow", async () => {
@@ -326,6 +326,113 @@ try {
       403,
     );
     assert.equal(await targetCount(), before);
+  });
+  await test("external primary can fail over to a CPA model", async () => {
+    await configure({
+      primary_model: "review-fail",
+      fallback_mode: "cpa",
+      fallback_model: "review-via-cpa",
+    });
+    const catalog = await admin(management + "/models?target=fallback");
+    assert.equal(catalog.status, 200);
+    assert.ok(
+      catalog.data.models.some((model) => model.id === "review-via-cpa"),
+    );
+    const probe = await admin(management + "/test", {
+      method: "POST",
+      body: JSON.stringify({ target: "fallback" }),
+    });
+    assert.equal(probe.data.success, true);
+    assert.equal(probe.data.attempt.model, "review-via-cpa");
+    const before = await reviewCount();
+    const totalBefore = (await admin(management + "/summary")).data.requests;
+    assert.equal((await chat("TEST_SAFE")).status, 200);
+    assert.equal(await reviewCount(), before + 2);
+    assert.equal(
+      (await admin(management + "/summary")).data.requests,
+      totalBefore + 1,
+    );
+    const record = (await lastRecords())[0];
+    assert.equal(record.final_reviewer, "fallback");
+    assert.equal(record.final_review_model, "review-via-cpa");
+    assert.equal(record.attempts.length, 2);
+    const observed = (await events()).filter(
+      (event) => event.model === "review-via-cpa" && event.kind === "review",
+    );
+    assert.ok(observed.every((event) => !event.nonce));
+    assert.equal((await chat("TEST_BLOCK")).status, 403);
+  });
+  await test("CPA primary and CPA fallback remain independently routed", async () => {
+    await configure({
+      primary_mode: "cpa",
+      primary_model: "review-timeout",
+      primary_timeout: 2,
+      fallback_mode: "cpa",
+      fallback_model: "review-via-cpa",
+    });
+    const before = await reviewCount();
+    assert.equal((await chat("TEST_SAFE")).status, 200);
+    assert.equal(await reviewCount(), before + 2);
+    const record = (await lastRecords())[0];
+    assert.equal(record.attempts[0].model, "review-timeout");
+    assert.equal(record.attempts[0].error_code, "review_timeout");
+    assert.equal(record.attempts[1].model, "review-via-cpa");
+    assert.equal(record.final_reviewer, "fallback");
+  });
+  await test("numeric timeout boundaries save and invalid values do not write", async () => {
+    for (const boundary of [2, 600]) {
+      await configure({
+        primary_timeout: boundary,
+        fallback_timeout: boundary,
+      });
+      const saved = await admin(management + "/config");
+      assert.equal(saved.data.primary_timeout, boundary);
+      assert.equal(saved.data.fallback_timeout, boundary);
+    }
+    const before = (await admin(management + "/config")).data;
+    for (const field of ["primary_timeout", "fallback_timeout"]) {
+      for (const value of [
+        0,
+        1.999,
+        600.001,
+        601,
+        null,
+        true,
+        "10s",
+        "10",
+        "5m",
+        "",
+      ]) {
+        const result = await admin(management + "/validate", {
+          method: "POST",
+          body: JSON.stringify({ ...before, [field]: value }),
+        });
+        assert.equal(result.status, 400, field + "=" + String(value));
+      }
+    }
+    assert.deepEqual((await admin(management + "/config")).data, before);
+    await configure({});
+  });
+  await test("legacy timeout strings load with the external fallback default", async () => {
+    const updated = await admin(management + "/config", {
+      method: "PATCH",
+      body: JSON.stringify({
+        primary_timeout: "10s",
+        fallback_timeout: "30s",
+        fallback_mode: null,
+      }),
+    });
+    assert.equal(updated.status, 200);
+    let state;
+    for (let i = 0; i < 40; i++) {
+      state = (await admin(management + "/health")).data;
+      if (state.active_config.fallback_timeout === 30) break;
+      await pause(100);
+    }
+    assert.equal(state.active_config.primary_timeout, 10);
+    assert.equal(state.active_config.fallback_timeout, 30);
+    assert.equal(state.active_config.fallback_mode, "external");
+    await configure({});
   });
   await test("configuration validation preserves active policy", async () => {
     const bad = await admin(management + "/validate", {
@@ -401,6 +508,7 @@ try {
     for (const secret of [
       runtime.client_key,
       runtime.review_key,
+      runtime.fallback_review_key,
       "fixture-primary-review-key",
       "fixture-fallback-review-key",
       "TEST_BLOCK",
@@ -464,7 +572,12 @@ try {
       JSON.stringify(measured, null, 2),
     );
   });
-  await configure({ primary_mode: "cpa", primary_model: "review-via-cpa" });
+  await configure({
+    primary_mode: "cpa",
+    primary_model: "review-via-cpa",
+    fallback_mode: "cpa",
+    fallback_model: "review-via-cpa",
+  });
   fs.writeFileSync(
     runtime.work + "/integration-results.json",
     JSON.stringify(

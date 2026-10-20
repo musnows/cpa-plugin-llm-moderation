@@ -180,30 +180,45 @@ func (a *App) management(req pluginapi.ManagementRequest, callbackID string) plu
 		}
 		active := s.config
 		active.CPAAPIKey, active.PrimaryAPIKey, active.FallbackAPIKey = "", "", ""
+		active.FallbackCPAKey = ""
 		return jsonResponse(200, map[string]any{"ready": s.configError == nil, "config_error": message, "last_config_error": s.lastConfigError, "version": moderation.Version, "prompt_version": moderation.PromptVersion, "required_response_steering": false, "active_config": active})
 	case "validate":
-		_, err := moderation.ParseConfig(req.Body)
+		_, err := moderation.ParseConfigWrite(req.Body)
 		if err != nil {
 			return errorResponse(400, err.Error())
 		}
 		return jsonResponse(200, map[string]bool{"valid": true})
 	case "models":
+		target := req.Query.Get("target")
+		if target == "" {
+			target = "primary"
+		}
+		if target != "primary" && target != "fallback" {
+			return errorResponse(400, "invalid_review_target")
+		}
 		cfg := s.config
 		if req.Method == "POST" {
 			var fields map[string]json.RawMessage
 			if moderation.DecodeJSON(req.Body, &fields) != nil {
 				return errorResponse(400, "invalid_configuration")
 			}
-			cfg, _ = moderation.ParseConfig(req.Body)
+			var err error
+			cfg, err = moderation.ReadConfig(req.Body)
+			if err != nil {
+				return errorResponse(400, err.Error())
+			}
 		}
 		probe := cfg
+		if target == "fallback" {
+			probe.CPABaseURL, probe.CPAAPIKey, probe.PrimaryTimeout = cfg.FallbackCPAURL, cfg.FallbackCPAKey, cfg.FallbackTimeout
+		}
 		probe.Enabled, probe.Threshold, probe.PrimaryMode, probe.PrimaryModel, probe.FallbackEnabled = true, 80, "cpa", "model-list-probe", false
 		if err := probe.Validate(); err != nil {
 			return errorResponse(400, err.Error())
 		}
-		ctx, cancel := context.WithTimeout(a.ctx, cfg.Primary().Timeout)
+		ctx, cancel := context.WithTimeout(a.ctx, probe.Primary().Timeout)
 		defer cancel()
-		resp, err := a.engine.Transport.Do(ctx, callbackID, moderation.HTTPRequest{Method: "GET", URL: cfg.CPAURL("models"), Headers: http.Header{"Authorization": {"Bearer " + cfg.CPAAPIKey}}})
+		resp, err := a.engine.Transport.Do(ctx, callbackID, moderation.HTTPRequest{Method: "GET", URL: probe.CPAURL("models"), Headers: http.Header{"Authorization": {"Bearer " + probe.CPAAPIKey}}})
 		if err != nil || resp.StatusCode != 200 {
 			return errorResponse(502, "model_list_unavailable")
 		}
@@ -313,12 +328,15 @@ func registration() any {
 		{Name: "primary_endpoint", Type: pluginapi.ConfigFieldTypeString, Description: "Full external Chat Completions endpoint."},
 		{Name: "primary_api_key", Type: pluginapi.ConfigFieldTypeString, Description: "External reviewer API key."},
 		{Name: "primary_model", Type: pluginapi.ConfigFieldTypeString, Description: "Primary reviewer model ID."},
-		{Name: "primary_timeout", Type: pluginapi.ConfigFieldTypeString, Default: "10s", Description: "Primary request timeout."},
+		{Name: "primary_timeout", Type: pluginapi.ConfigFieldTypeNumber, Default: 10, Description: "Primary request timeout in seconds, from 2 to 600 inclusive."},
 		{Name: "fallback_enabled", Type: pluginapi.ConfigFieldTypeBoolean, Default: false, Description: "Enable the independent fallback reviewer."},
+		{Name: "fallback_mode", Type: pluginapi.ConfigFieldTypeEnum, EnumValues: []string{"cpa", "external"}, Default: "external", Description: "Fallback reviewer connection mode."},
+		{Name: "fallback_cpa_base_url", Type: pluginapi.ConfigFieldTypeString, Description: "Fallback CPA internal HTTP base URL, optionally ending in /v1."},
+		{Name: "fallback_cpa_api_key", Type: pluginapi.ConfigFieldTypeString, Description: "CPA key used only for fallback reviewer requests."},
 		{Name: "fallback_endpoint", Type: pluginapi.ConfigFieldTypeString, Description: "Full fallback Chat Completions endpoint."},
 		{Name: "fallback_api_key", Type: pluginapi.ConfigFieldTypeString, Description: "Fallback reviewer API key."},
 		{Name: "fallback_model", Type: pluginapi.ConfigFieldTypeString, Description: "Fallback reviewer model ID."},
-		{Name: "fallback_timeout", Type: pluginapi.ConfigFieldTypeString, Default: "10s", Description: "Fallback request timeout."},
+		{Name: "fallback_timeout", Type: pluginapi.ConfigFieldTypeNumber, Default: 10, Description: "Fallback request timeout in seconds, from 2 to 600 inclusive."},
 		{Name: "threshold", Type: pluginapi.ConfigFieldTypeNumber, Default: 80, Description: "Block only when confidence is strictly greater. Zero blocks all; 100 never blocks by score."},
 		{Name: "failure_policy", Type: pluginapi.ConfigFieldTypeEnum, EnumValues: []string{"deny", "allow"}, Default: "deny", Description: "Action when both reviewers fail."},
 		{Name: "log_dir", Type: pluginapi.ConfigFieldTypeString, Default: "./logs/llm-moderation", Description: "Daily JSONL directory relative to the CPA working directory."},

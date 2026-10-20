@@ -218,8 +218,24 @@
                     placeholder="review-model"
                   />
                 </div>
-                <label for="primary_timeout">单次超时</label
-                ><input id="primary_timeout" class="mono" placeholder="10s" />
+                <label for="primary_timeout">单次超时</label>
+                <div class="timeout-input">
+                  <input
+                    id="primary_timeout"
+                    class="mono"
+                    type="number"
+                    min="2"
+                    max="600"
+                    step="any"
+                    required
+                    placeholder="10"
+                    aria-describedby="primary-timeout-help"
+                  />
+                  <span class="input-unit mono" aria-hidden="true">s</span>
+                </div>
+                <p id="primary-timeout-help" class="field-help">
+                  允许 2–600 秒。
+                </p>
                 <div class="test-line">
                   <button id="test-primary" type="button" class="button">
                     测试主审核</button
@@ -232,7 +248,7 @@
               </article>
               <article class="card">
                 <div class="card-heading">
-                  <h2>独立备用审核</h2>
+                  <h2>备用审核模型</h2>
                   <span class="badge neutral">FALLBACK</span>
                 </div>
                 <label class="toggle-line"
@@ -241,9 +257,46 @@
                   ></label
                 >
                 <p class="muted compact">
-                  主审核超时、调用失败或 JSON 无效后，再调用备用接口。
+                  主审核超时、调用失败或 JSON 无效后，再调用备用审核模型。
                 </p>
-                <fieldset id="fallback-fields">
+                <label for="fallback_mode">连接方式</label>
+                <select id="fallback_mode">
+                  <option value="cpa">使用 CPA 已配置模型</option>
+                  <option value="external">独立 Chat Completions 接口</option>
+                </select>
+                <fieldset id="fallback-cpa-fields" hidden>
+                  <label for="fallback_cpa_base_url">CPA 内部访问地址</label>
+                  <input
+                    id="fallback_cpa_base_url"
+                    class="mono"
+                    type="url"
+                    placeholder="http://127.0.0.1:18080"
+                  />
+                  <p class="field-help">
+                    填写 CPA 进程可以访问的地址，可包含 /v1。
+                  </p>
+                  <label for="fallback_cpa_api_key">内部审核访问 Key</label>
+                  <input
+                    id="fallback_cpa_api_key"
+                    class="mono"
+                    type="password"
+                    autocomplete="off"
+                  />
+                  <div class="label-line">
+                    <label for="fallback_cpa_model">审核模型</label>
+                    <button
+                      id="load-fallback-models"
+                      class="text-button"
+                      type="button"
+                    >
+                      刷新模型列表
+                    </button>
+                  </div>
+                  <select id="fallback_cpa_model" class="mono">
+                    <option value="">请先加载模型列表</option>
+                  </select>
+                </fieldset>
+                <fieldset id="fallback-external-fields">
                   <label for="fallback_endpoint"
                     >Chat Completions endpoint</label
                   ><input
@@ -262,13 +315,26 @@
                     id="fallback_model"
                     class="mono"
                     placeholder="fallback-review-model"
-                  /><label for="fallback_timeout">单次超时</label
-                  ><input
-                    id="fallback_timeout"
-                    class="mono"
-                    placeholder="10s"
                   />
                 </fieldset>
+                <label for="fallback_timeout">单次超时</label>
+                <div class="timeout-input">
+                  <input
+                    id="fallback_timeout"
+                    class="mono"
+                    type="number"
+                    min="2"
+                    max="600"
+                    step="any"
+                    required
+                    placeholder="10"
+                    aria-describedby="fallback-timeout-help"
+                  />
+                  <span class="input-unit mono" aria-hidden="true">s</span>
+                </div>
+                <p id="fallback-timeout-help" class="field-help">
+                  允许 2–600 秒。
+                </p>
                 <div class="test-line">
                   <button id="test-fallback" type="button" class="button">
                     测试备用审核</button
@@ -409,7 +475,7 @@
           </div>
         </section>
         <footer>
-          LLM Moderation <span class="mono">v0.1.0</span
+          LLM Moderation <span class="mono">v0.1.1</span
           ><span>日志不保存完整 Key 和原始用户文本</span>
         </footer>
       </div>

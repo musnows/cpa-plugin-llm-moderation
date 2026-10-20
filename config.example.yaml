@@ -10,14 +10,17 @@ plugins:
       cpa_base_url: http://127.0.0.1:18080
       cpa_api_key: replace-with-cpa-client-key
       primary_model: replace-with-configured-model-id
-      primary_timeout: 10s
+      primary_timeout: 10
       primary_endpoint: ""
       primary_api_key: ""
       fallback_enabled: false
+      fallback_mode: external
+      fallback_cpa_base_url: ""
+      fallback_cpa_api_key: ""
       fallback_endpoint: ""
       fallback_api_key: ""
       fallback_model: ""
-      fallback_timeout: 10s
+      fallback_timeout: 10
       threshold: 80
       failure_policy: deny
       log_dir: ./logs/llm-moderation

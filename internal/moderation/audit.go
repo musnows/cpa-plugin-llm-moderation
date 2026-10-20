@@ -272,7 +272,7 @@ func (h *histogram) add(v float64) {
 	if h.buckets == nil {
 		h.buckets = map[int]int{}
 	}
-	bucket := min(int(math.Round(v)), 600000)
+	bucket := min(int(math.Round(v)), 2*MaxTimeoutSeconds*1000)
 	h.buckets[bucket]++
 	h.count++
 	h.sum += v

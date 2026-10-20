@@ -195,7 +195,7 @@ func TestFallbackAndFailures(t *testing.T) {
 			primaryStopped := false
 			cfg := testConfig()
 			cfg.FallbackEnabled = true
-			cfg.PrimaryTimeout = "5ms"
+			cfg.PrimaryTimeout = 2
 			if mode == "both_fail_allow" {
 				cfg.FailurePolicy = "allow"
 			}
