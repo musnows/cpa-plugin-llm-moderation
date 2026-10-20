@@ -120,7 +120,7 @@ func (a *App) Handle(method string, raw []byte) (result any, err error) {
 		return pluginapi.RequestInterceptResponse{}, nil
 	case "management.register":
 		var routes []map[string]string
-		for _, route := range []struct{ method, path string }{{"GET", "health"}, {"GET", "models"}, {"POST", "models"}, {"GET", "records"}, {"GET", "summary"}, {"POST", "test"}, {"POST", "validate"}} {
+		for _, route := range []struct{ method, path string }{{"GET", "health"}, {"GET", "prompt"}, {"GET", "models"}, {"POST", "models"}, {"GET", "records"}, {"GET", "summary"}, {"POST", "test"}, {"POST", "validate"}} {
 			routes = append(routes, map[string]string{"Method": route.method, "Path": managementBase + "/" + route.path})
 		}
 		return map[string]any{"routes": routes, "resources": []map[string]string{{"Path": "/dashboard", "Menu": "LLM 输入预检", "Description": "Input moderation configuration and audit logs."}, {"Path": "/app.js"}, {"Path": "/style.css"}}}, nil
@@ -173,6 +173,8 @@ func (a *App) management(req pluginapi.ManagementRequest, callbackID string) plu
 	s := a.state.Load()
 	path := strings.TrimPrefix(req.Path, managementBase+"/")
 	switch path {
+	case "prompt":
+		return jsonResponse(200, map[string]string{"system_prompt": moderation.SystemPrompt, "prompt_version": moderation.PromptVersion})
 	case "health":
 		message := ""
 		if s.configError != nil {
@@ -340,6 +342,9 @@ func registration() any {
 		{Name: "threshold", Type: pluginapi.ConfigFieldTypeNumber, Default: 80, Description: "Block only when confidence is strictly greater. Zero blocks all; 100 never blocks by score."},
 		{Name: "failure_policy", Type: pluginapi.ConfigFieldTypeEnum, EnumValues: []string{"deny", "allow"}, Default: "deny", Description: "Action when both reviewers fail."},
 		{Name: "log_dir", Type: pluginapi.ConfigFieldTypeString, Default: "./logs/llm-moderation", Description: "Daily JSONL directory relative to the CPA working directory."},
+		{Name: "prompt_mode", Type: pluginapi.ConfigFieldTypeEnum, EnumValues: []string{"append", "override"}, Default: "append", Description: "Append to the built-in system prompt or explicitly replace it."},
+		{Name: "append_prompt", Type: pluginapi.ConfigFieldTypeString, Default: "", Description: "Additional system instructions shared by primary and fallback reviewers."},
+		{Name: "override_prompt", Type: pluginapi.ConfigFieldTypeString, Default: "", Description: "Complete replacement system prompt, required in override mode. The verdict JSON contract still applies."},
 	}
 	return map[string]any{"schema_version": 6, "metadata": pluginapi.Metadata{Name: moderation.ID, Version: moderation.Version, Author: "musnows", GitHubRepository: "https://github.com/musnows/cpa-plugin-llm-moderation", ConfigFields: fields}, "capabilities": map[string]bool{"request_interceptor": true, "management_api": true}}
 }

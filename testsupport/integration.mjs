@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
+import { createHash } from "node:crypto";
 
 const runtime = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 const base = runtime.cpa_url,
@@ -433,6 +434,79 @@ try {
     assert.equal(state.active_config.fallback_timeout, 30);
     assert.equal(state.active_config.fallback_mode, "external");
     await configure({});
+  });
+  await test("prompt template requires management authentication", async () => {
+    assert.equal((await json(management + "/prompt")).status, 401);
+    const template = await admin(management + "/prompt");
+    assert.equal(template.status, 200);
+    assert.ok(template.data.system_prompt.includes("user_messages"));
+    assert.ok(template.data.system_prompt.includes('"is_violation"'));
+  });
+  for (const mode of ["append", "override"]) {
+    await test(
+      mode + " prompt reaches primary, fallback and reviewer probes",
+      async () => {
+        const template = (await admin(management + "/prompt")).data
+          .system_prompt;
+        const extra =
+          "Apply the configured review rules consistently.\nPreserve the verdict JSON format.";
+        const custom = "Custom review policy for this fixture.\n" + template;
+        const cfg = await configure({
+          prompt_mode: mode,
+          append_prompt: extra,
+          override_prompt: custom,
+          primary_model: "review-invalid",
+        });
+        const effective =
+          mode === "override"
+            ? custom
+            : template + "\n\nAdditional review instructions:\n" + extra;
+        const hash = createHash("sha256").update(effective).digest("hex");
+        const before = (await events()).length;
+        assert.equal((await chat("TEST_SAFE")).status, 200);
+        const calls = (await events())
+          .slice(before)
+          .filter((item) => item.kind === "review");
+        assert.equal(calls.length, 2);
+        assert.ok(calls.every((item) => item.system_prompt_sha256 === hash));
+        const record = (await lastRecords())[0];
+        assert.equal(record.prompt_mode, mode);
+        assert.equal(record.prompt_sha256, hash);
+        assert.ok(!JSON.stringify(record).includes(extra));
+        for (const target of ["primary", "fallback"]) {
+          const start = (await events()).length;
+          const probe = await admin(management + "/test", {
+            method: "POST",
+            body: JSON.stringify({
+              target,
+              config: { ...cfg, primary_model: "review-safe" },
+            }),
+          });
+          assert.equal(probe.data.success, true);
+          assert.equal(
+            (await events()).slice(start).find((item) => item.kind === "review")
+              .system_prompt_sha256,
+            hash,
+          );
+        }
+        await configure({});
+      },
+    );
+  }
+  await test("invalid prompt settings are rejected before save", async () => {
+    const before = (await admin(management + "/config")).data;
+    for (const patch of [
+      { prompt_mode: "invalid" },
+      { prompt_mode: "override", override_prompt: " \n" },
+      { append_prompt: 3 },
+    ]) {
+      const result = await admin(management + "/validate", {
+        method: "POST",
+        body: JSON.stringify({ ...runtime.default_config, ...patch }),
+      });
+      assert.equal(result.status, 400);
+    }
+    assert.deepEqual((await admin(management + "/config")).data, before);
   });
   await test("configuration validation preserves active policy", async () => {
     const bad = await admin(management + "/validate", {

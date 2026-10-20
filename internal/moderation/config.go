@@ -14,7 +14,7 @@ import (
 )
 
 const ID = "llm-moderation"
-const Version = "0.1.1"
+const Version = "0.1.2"
 const MaxInputBytes = 4 << 20
 const MaxRequestBytes = 32 << 20
 const MaxResponseBytes = 1 << 20
@@ -41,6 +41,9 @@ type Config struct {
 	Threshold        float64 `yaml:"threshold" json:"threshold"`
 	FailurePolicy    string  `yaml:"failure_policy" json:"failure_policy"`
 	LogDir           string  `yaml:"log_dir" json:"log_dir"`
+	PromptMode       string  `yaml:"prompt_mode" json:"prompt_mode"`
+	AppendPrompt     string  `yaml:"append_prompt" json:"append_prompt"`
+	OverridePrompt   string  `yaml:"override_prompt" json:"override_prompt"`
 }
 
 type Reviewer struct {
@@ -49,10 +52,11 @@ type Reviewer struct {
 	APIKey   string
 	Model    string
 	Timeout  time.Duration
+	Prompt   string
 }
 
 func DefaultConfig() Config {
-	return Config{Enabled: true, PrimaryMode: "cpa", PrimaryTimeout: 10, FallbackMode: "external", FallbackTimeout: 10, Threshold: 80, FailurePolicy: "deny", LogDir: "./logs/llm-moderation"}
+	return Config{Enabled: true, PrimaryMode: "cpa", PrimaryTimeout: 10, FallbackMode: "external", FallbackTimeout: 10, Threshold: 80, FailurePolicy: "deny", LogDir: "./logs/llm-moderation", PromptMode: "append"}
 }
 
 func ParseConfig(raw []byte) (Config, error) {
@@ -87,6 +91,11 @@ func decodeConfig(raw []byte, allowLegacy bool) (Config, error) {
 		fields := document.Content[0].Content
 		for i := 0; i < len(fields); i += 2 {
 			name, value := fields[i].Value, fields[i+1]
+			if name == "prompt_mode" || name == "append_prompt" || name == "override_prompt" {
+				if value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
+					return c, fmt.Errorf("%s must be a string", name)
+				}
+			}
 			if name != "primary_timeout" && name != "fallback_timeout" {
 				continue
 			}
@@ -110,6 +119,7 @@ func decodeConfig(raw []byte, allowLegacy bool) (Config, error) {
 		}
 	}
 	c.PrimaryMode = strings.TrimSpace(c.PrimaryMode)
+	c.PromptMode = strings.TrimSpace(c.PromptMode)
 	c.FallbackMode = strings.TrimSpace(c.FallbackMode)
 	c.CPABaseURL = strings.TrimRight(strings.TrimSpace(c.CPABaseURL), "/")
 	c.FallbackCPAURL = strings.TrimRight(strings.TrimSpace(c.FallbackCPAURL), "/")
@@ -121,6 +131,12 @@ func decodeConfig(raw []byte, allowLegacy bool) (Config, error) {
 }
 
 func (c Config) Validate() error {
+	if c.PromptMode != "append" && c.PromptMode != "override" {
+		return errors.New("prompt_mode must be append or override")
+	}
+	if c.PromptMode == "override" && strings.TrimSpace(c.OverridePrompt) == "" {
+		return errors.New("override_prompt is required in override mode")
+	}
 	if c.PrimaryMode != "cpa" && c.PrimaryMode != "external" {
 		return errors.New("primary_mode must be cpa or external")
 	}
@@ -194,7 +210,7 @@ func validURL(raw string, chat bool) error {
 
 func (c Config) Primary() Reviewer {
 	d := time.Duration(c.PrimaryTimeout * float64(time.Second))
-	r := Reviewer{Name: "primary", Endpoint: c.PrimaryEndpoint, APIKey: c.PrimaryAPIKey, Model: c.PrimaryModel, Timeout: d}
+	r := Reviewer{Name: "primary", Endpoint: c.PrimaryEndpoint, APIKey: c.PrimaryAPIKey, Model: c.PrimaryModel, Timeout: d, Prompt: c.EffectivePrompt()}
 	if c.PrimaryMode == "cpa" {
 		r.Endpoint, r.APIKey = c.CPAURL("chat/completions"), c.CPAAPIKey
 	}
@@ -203,7 +219,7 @@ func (c Config) Primary() Reviewer {
 
 func (c Config) Fallback() Reviewer {
 	d := time.Duration(c.FallbackTimeout * float64(time.Second))
-	r := Reviewer{Name: "fallback", Endpoint: c.FallbackEndpoint, APIKey: c.FallbackAPIKey, Model: c.FallbackModel, Timeout: d}
+	r := Reviewer{Name: "fallback", Endpoint: c.FallbackEndpoint, APIKey: c.FallbackAPIKey, Model: c.FallbackModel, Timeout: d, Prompt: c.EffectivePrompt()}
 	if c.FallbackMode == "cpa" {
 		r.Endpoint, r.APIKey = cpaURL(c.FallbackCPAURL, "chat/completions"), c.FallbackCPAKey
 	}

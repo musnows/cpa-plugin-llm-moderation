@@ -33,6 +33,7 @@ body {
   display: none !important;
 }
 button,
+textarea,
 input,
 select {
   font: inherit;
@@ -45,6 +46,7 @@ button:disabled {
   opacity: 0.55;
 }
 button:focus-visible,
+textarea:focus-visible,
 input:focus-visible,
 select:focus-visible {
   outline: 3px solid #3068db36;
@@ -386,6 +388,7 @@ tr:last-child td {
 }
 .settings-grid label,
 .behavior-grid label,
+.prompt-card label,
 .filters label,
 #login-form > label {
   display: block;
@@ -396,6 +399,7 @@ tr:last-child td {
 .settings-grid .card-heading + label {
   margin-top: 0;
 }
+textarea,
 input,
 select {
   width: 100%;
@@ -410,6 +414,39 @@ select {
 }
 input::placeholder {
   color: #a0aabb;
+}
+.prompt-card {
+  margin-top: 20px;
+}
+.prompt-card textarea {
+  display: block;
+  height: auto;
+  min-height: 140px;
+  line-height: 1.7;
+  resize: vertical;
+}
+.prompt-card .label-line {
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.prompt-contract {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.prompt-contract summary {
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.prompt-contract pre {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
 }
 .inline select {
   width: auto;
@@ -818,6 +855,7 @@ dialog pre {
     background: #366bce;
     color: #fff;
   }
+  textarea,
   input,
   select,
   .button {

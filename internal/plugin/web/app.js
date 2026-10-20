@@ -29,6 +29,9 @@ const defaults = {
   threshold: 80,
   failure_policy: "deny",
   log_dir: "./logs/llm-moderation",
+  prompt_mode: "append",
+  append_prompt: "",
+  override_prompt: "",
 };
 const labels = {
   allow: "放行",
@@ -48,6 +51,10 @@ const errorLabels = {
   audit_directory_unavailable: "审核日志目录无法访问",
   invalid_configuration: "审核配置无效",
   fallback_disabled: "尚未启用 fallback",
+  "prompt_mode must be append or override":
+    "请选择追加 Prompt 或覆盖内置 System Prompt。",
+  "override_prompt is required in override mode":
+    "覆盖模式下必须填写完整 System Prompt。",
   "primary_timeout must be a number of seconds between 2 and 600":
     "主审核超时时间必须是 2–600 秒之间的数字。",
   "fallback_timeout must be a number of seconds between 2 and 600":
@@ -174,6 +181,15 @@ function displayConfig(value) {
     else el.value = String(config[key] ?? "");
   }
   $("external_model").value = config.primary_model;
+  const override = config.prompt_mode === "override";
+  document
+    .querySelectorAll(".builtin-policy")
+    .forEach((el) => (el.hidden = override));
+  $("rule-prompt").textContent = override
+    ? "使用自定义 System Prompt，内置审核规则已被替换。"
+    : typeof config.append_prompt === "string" && config.append_prompt.trim()
+      ? "使用内置 System Prompt，并附加自定义审核要求。"
+      : "使用内置 System Prompt。";
   showModelSelection("cpa_model", config.primary_model);
   showModelSelection("fallback_cpa_model", config.fallback_model);
   $("rule-threshold").textContent =
@@ -217,6 +233,18 @@ function modeFields() {
     .forEach((el) => (el.disabled = !fallbackEnabled || fallbackCPA));
   $("test-fallback").disabled =
     !fallbackEnabled || busyButtons.has($("test-fallback"));
+  promptFields();
+}
+
+function promptFields() {
+  const override = $("prompt_mode").value === "override";
+  $("append-prompt-fields").hidden = override;
+  $("override-prompt-fields").hidden = !override;
+  $("append_prompt").disabled = override;
+  $("override_prompt").disabled = !override;
+  $("override_prompt").required = override;
+  $("load-prompt-template").disabled =
+    !override || busyButtons.has($("load-prompt-template"));
 }
 
 function readTimeout(id, label) {
@@ -238,7 +266,9 @@ function collectConfig() {
         ? el.checked
         : key === "threshold"
           ? Number(el.value)
-          : el.value.trim();
+          : key === "append_prompt" || key === "override_prompt"
+            ? el.value
+            : el.value.trim();
   }
   value.primary_model =
     value.primary_mode === "cpa"
@@ -250,6 +280,8 @@ function collectConfig() {
       : $("fallback_model").value.trim();
   value.primary_timeout = readTimeout("primary_timeout", "主审核");
   value.fallback_timeout = readTimeout("fallback_timeout", "备用审核");
+  if (value.prompt_mode === "override" && !value.override_prompt.trim())
+    throw new Error("覆盖模式下必须填写完整 System Prompt。");
   return value;
 }
 
@@ -497,6 +529,26 @@ document.querySelectorAll(".tab").forEach((tab) =>
 $("primary_mode").addEventListener("change", modeFields);
 $("fallback_mode").addEventListener("change", modeFields);
 $("fallback_enabled").addEventListener("change", modeFields);
+$("prompt_mode").addEventListener("change", promptFields);
+$("load-prompt-template").addEventListener("click", (event) =>
+  busy(event.currentTarget, async () => {
+    const previous = $("override_prompt").value;
+    const result = await api(base + "/prompt");
+    if (
+      $("prompt_mode").value !== "override" ||
+      $("override_prompt").value !== previous
+    ) {
+      notice("Prompt 配置已变更，请重新载入模板。", true);
+      return;
+    }
+    $("override_prompt").value = result.system_prompt;
+    for (const target of ["primary", "fallback"]) {
+      $(target + "-result").className = "test-result";
+      $(target + "-result").textContent = "配置已变更，待测试";
+    }
+    notice("已填入内置 Prompt 模板，保存后生效。");
+  }),
+);
 async function loadModels(target, button) {
   await busy(button, async () => {
     const id = target === "fallback" ? "fallback_cpa_model" : "cpa_model";
@@ -625,6 +677,8 @@ $("close-detail").addEventListener("click", () => $("detail").close());
 $("settings-form").addEventListener(
   "invalid",
   (event) => {
+    if (event.target.id === "override_prompt")
+      notice("覆盖模式下必须填写完整 System Prompt。", true);
     if (
       event.target.id === "primary_timeout" ||
       event.target.id === "fallback_timeout"
@@ -639,6 +693,13 @@ $("settings-form").addEventListener(
 for (const eventName of ["input", "change"]) {
   $("settings-form").addEventListener(eventName, (event) => {
     const id = event.target.id;
+    if (["prompt_mode", "append_prompt", "override_prompt"].includes(id)) {
+      for (const target of ["primary", "fallback"]) {
+        $(target + "-result").className = "test-result";
+        $(target + "-result").textContent = "配置已变更，待测试";
+      }
+      return;
+    }
     const target = /^(primary_|cpa_|external_)/.test(id)
       ? "primary"
       : id.startsWith("fallback_")

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -20,15 +21,20 @@ type event struct {
 	Model string    `json:"model"`
 	Auth  string    `json:"auth"`
 	Nonce string    `json:"nonce"`
+	Hash  string    `json:"system_prompt_sha256,omitempty"`
 }
 
 var mu sync.Mutex
 var events []event
 
-func record(r *http.Request, kind, model string) {
+func record(r *http.Request, kind, model string, prompts ...string) {
 	mu.Lock()
 	defer mu.Unlock()
-	events = append(events, event{Time: time.Now().UTC(), Kind: kind, Model: model, Auth: r.Header.Get("Authorization"), Nonce: r.Header.Get("X-CPA-Moderation-Nonce")})
+	hash := ""
+	if len(prompts) > 0 {
+		hash = fmt.Sprintf("%x", sha256.Sum256([]byte(prompts[0])))
+	}
+	events = append(events, event{Time: time.Now().UTC(), Kind: kind, Model: model, Auth: r.Header.Get("Authorization"), Nonce: r.Header.Get("X-CPA-Moderation-Nonce"), Hash: hash})
 }
 func write(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -102,7 +108,14 @@ func complete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.HasPrefix(request.Model, "review-") {
-		record(r, "review", request.Model)
+		var systemPrompt string
+		for _, message := range request.Messages {
+			if message.Role == "system" {
+				_ = json.Unmarshal(message.Content, &systemPrompt)
+				break
+			}
+		}
+		record(r, "review", request.Model, systemPrompt)
 		if request.Model == "review-timeout" {
 			select {
 			case <-r.Context().Done():

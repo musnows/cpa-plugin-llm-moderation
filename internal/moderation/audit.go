@@ -51,6 +51,8 @@ type Record struct {
 	PrecheckDurationMS float64   `json:"precheck_duration_ms"`
 	Attempts           []Attempt `json:"attempts"`
 	PromptVersion      string    `json:"prompt_version"`
+	PromptMode         string    `json:"prompt_mode,omitempty"`
+	PromptSHA256       string    `json:"prompt_sha256,omitempty"`
 }
 
 type Sink interface{ Append(Record) error }

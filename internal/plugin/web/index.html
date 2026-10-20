@@ -124,16 +124,19 @@
             </article>
             <aside class="card">
               <h2>当前规则</h2>
+              <p id="rule-prompt" class="muted compact">
+                使用内置 system prompt。
+              </p>
               <dl class="policy-list">
-                <div>
+                <div class="builtin-policy">
                   <dt>网络安全</dt>
                   <dd>所有攻防、漏洞、渗透等相关内容</dd>
                 </div>
-                <div>
+                <div class="builtin-policy">
                   <dt>涉政内容</dt>
                   <dd>暴力煽动、威胁、仇恨等高风险内容</dd>
                 </div>
-                <div>
+                <div class="builtin-policy">
                   <dt>NSFW</dt>
                   <dd>色情与性化内容；保留医学、教育和艺术场景</dd>
                 </div>
@@ -346,6 +349,70 @@
                 </div>
               </article>
             </div>
+            <article class="card prompt-card">
+              <div class="card-heading">
+                <h2>审核 Prompt</h2>
+                <span class="badge neutral">主备共用</span>
+              </div>
+              <label for="prompt_mode">Prompt 配置方式</label>
+              <select id="prompt_mode">
+                <option value="append">追加 Prompt（默认）</option>
+                <option value="override">覆盖内置 System Prompt</option>
+              </select>
+              <div id="append-prompt-fields">
+                <label for="append_prompt">追加 Prompt</label>
+                <textarea
+                  id="append_prompt"
+                  class="mono"
+                  rows="6"
+                  placeholder="填写需要补充的审核要求；留空时使用内置 system prompt。"
+                  aria-describedby="append-prompt-help"
+                ></textarea>
+                <p id="append-prompt-help" class="field-help">
+                  在内置 system prompt 末尾追加，主审核与 fallback 同时生效。
+                </p>
+              </div>
+              <div id="override-prompt-fields" hidden>
+                <div class="label-line">
+                  <label for="override_prompt">完整 System Prompt</label>
+                  <button
+                    id="load-prompt-template"
+                    type="button"
+                    class="text-button"
+                  >
+                    使用内置 Prompt 作为模板
+                  </button>
+                </div>
+                <textarea
+                  id="override_prompt"
+                  class="mono"
+                  rows="12"
+                  placeholder="填写完整的审核 system prompt，包括审核规则和 JSON 返回要求。"
+                  aria-describedby="override-prompt-help"
+                  disabled
+                ></textarea>
+                <p id="override-prompt-help" class="field-help">
+                  完全替换内置 system
+                  prompt；追加内容不生效。不能为空，返回结果仍须符合下方 JSON
+                  格式。
+                </p>
+              </div>
+              <details class="prompt-contract">
+                <summary>查看审核输入与 JSON 返回要求</summary>
+                <p class="field-help">
+                  用户文本通过独立 user 消息中的 user_messages
+                  数组传入，应作为待审数据处理。两种模式均须返回下列四个字段。
+                </p>
+                <pre class="mono">
+{"is_violation": true, "confidence": 92, "categories": ["cybersecurity"], "reason": "Brief classification reason in English."}</pre
+                >
+                <p class="field-help">
+                  confidence 为 0–100 的数字；categories 仅允许
+                  cybersecurity、political、nsfw。违规时至少一个类别，未违规时为空数组。reason
+                  为不超过 400 字符的简短英文理由。
+                </p>
+              </details>
+            </article>
             <article class="card behavior-card">
               <h2>判定、故障与日志</h2>
               <div class="behavior-grid">
@@ -475,7 +542,7 @@
           </div>
         </section>
         <footer>
-          LLM Moderation <span class="mono">v0.1.1</span
+          LLM Moderation <span class="mono">v0.1.2</span
           ><span>日志不保存完整 Key 和原始用户文本</span>
         </footer>
       </div>

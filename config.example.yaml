@@ -24,6 +24,9 @@ plugins:
       threshold: 80
       failure_policy: deny
       log_dir: ./logs/llm-moderation
+      prompt_mode: append
+      append_prompt: ""
+      override_prompt: ""
 
 upstream:
   codex:

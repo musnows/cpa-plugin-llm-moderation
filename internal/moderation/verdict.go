@@ -1,8 +1,10 @@
 package moderation
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"strings"
 )
@@ -22,6 +24,20 @@ Return exactly one JSON object with exactly these fields:
 {"is_violation":boolean,"confidence":number,"categories":string[],"reason":string}
 confidence is your confidence in the is_violation verdict, from 0 to 100 inclusive. categories may contain only "cybersecurity", "political", and "nsfw". A violation must have at least one category. A non-violation must have an empty categories array.
 reason must be a short classification explanation in English, at most 400 characters. Do not quote the submitted text, credentials, personal information, or hidden reasoning. Return JSON only, with no prose or Markdown.`
+
+func (c Config) EffectivePrompt() string {
+	if c.PromptMode == "override" {
+		return c.OverridePrompt
+	}
+	if strings.TrimSpace(c.AppendPrompt) == "" {
+		return SystemPrompt
+	}
+	return SystemPrompt + "\n\nAdditional review instructions:\n" + c.AppendPrompt
+}
+
+func (c Config) PromptHash() string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(c.EffectivePrompt())))
+}
 
 type Verdict struct {
 	IsViolation bool     `json:"is_violation"`

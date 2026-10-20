@@ -47,7 +47,7 @@ func (e *Engine) Review(ctx context.Context, callbackID string, reviewer Reviewe
 	data, _ := json.Marshal(map[string]any{"user_messages": texts})
 	body, err := json.Marshal(map[string]any{
 		"model": reviewer.Model, "stream": false,
-		"messages": []map[string]string{{"role": "system", "content": SystemPrompt}, {"role": "user", "content": string(data)}},
+		"messages": []map[string]string{{"role": "system", "content": reviewer.Prompt}, {"role": "user", "content": string(data)}},
 	})
 	if err != nil {
 		a.ErrorCode = "review_request_encoding_failed"
@@ -114,6 +114,7 @@ func (e *Engine) Intercept(ctx context.Context, callbackID string, req pluginapi
 	r := Record{Time: start.UTC(), RequestID: req.RequestID, TraceID: req.TraceID, Protocol: req.SourceFormat, TargetModel: req.Model,
 		RequestedModel: req.RequestedModel, KeyFingerprint: key, MaskedKey: masked, Threshold: cfg.Threshold,
 		Categories: []string{}, Attempts: []Attempt{}, PromptVersion: PromptVersion}
+	r.PromptMode, r.PromptSHA256 = cfg.PromptMode, cfg.PromptHash()
 	secrets := append(cfg.Secrets(), HeaderKeys(req.Headers)...)
 	var texts []string
 	defer func() {
